@@ -8,10 +8,24 @@ my $usage = "sim_sRNA-seq.pl version: $ver_num
 
 Simulate plant small RNA-seq data
 
-Usage: sim_sRNA-seq.pl [options] rep-masked-genome.fasta unmasked-genome.fasta
+Depdency:
+
+samtools
+
+Usage:
+
+sim_sRNA-seq.pl [options] -s soft-masked-genome.fa
+  --- OR, LESS PREFERRED  ---
+sim_sRNA-seq.pl [options] -d hard-masked-genome.fa -n not-masked-genome.fa
 
 Options:
 
+-s : path to soft-masked genome. Lower-case letters are assumed repeat-masked. 
+     If -s specified, neither -d nor -n can be specified.
+-d : path to hard-masked genome.
+     If -d is specified, -n must also specified, and -s cannot be specified
+-n : path to not-masked genome. 
+     If -n is specified, -d must also be specified, and -s cannot be specified.
 -v : print version number and quit
 -h : print help message and quit
 -r : desired total number of reads, in millions. Default: 5
@@ -25,9 +39,13 @@ our $opt_r = 5;
 our $opt_e = 0.0001;
 our $opt_h;
 our $opt_v;
+our $opt_s;
+our $opt_d;
+our $opt_n;
+
 
 # get options and validate them
-getopt('rehv');
+getopt('rehvsdn');
 
 if ($opt_v) {
     print "sim_sRNA-seq.pl version: $ver_num\n";
@@ -50,29 +68,46 @@ unless(($opt_e >=0 ) and ($opt_e < 1)) {
 # convert option r to millions
 my $total_reads = 1000000 * $opt_r;
 
-# verify genome files
-my $unmasked = pop @ARGV;
-my $masked = pop @ARGV;
-unless(-r $unmasked) {
-    print "FATAL: Could not read unmasked genome file $unmasked\n$usage\n";
-}
-unless(-r $masked) {
-    print "FATAL: Could not read masked genome file $masked\n$usage\n";
+# check for samtools installation
+(open(SAMCHECK, "which samtools |")) || die "FATAL: samtools check failed on command \'which samtools\'\n$usage\n";
+my $samtools_check = <SAMCHECK>;
+close SAMCHECK;
+unless($samtools_check) {
+    print "FATAL: samtools check failed. samtools must be installed to use this script.\n$usage\n";
 }
 
-# validate genomes.
-my $validated_genomes = validate_genomes($unmasked,$masked);
-if($validated_genomes == -1 ) {
-    print "FATAL: Genomes don't match according to their .fai files. Genomes must have the same chromosome names and lengths.\n$usage\n";
+# verify genome files
+if($opt_s) {
+    # opt_d and opt_n not allowed
+    if(($opt_d) or ($opt_n)) {
+	print "FATAL: If option -s is specified, options -d and -n cannot be specified.\n$usage\n";
+	exit;
+    }
+} elsif (($opt_d) and ($opt_n)) {
+    # opt_s not allowed
+    if($opt_s) {
+	print "FATAL: If options -d and/or -n are specified, option -s cannot be specified.\n$usage\n";
+	exit;
+    }
+} else {
+    # no valid combination of genome(s) specified
+    print "FATAL: Invalid genome options. Either specify -s or both -d and -n.\n$usage\n";
     exit;
-} elsif ($validated_genomes == 0) {
-    print "FATAL: .fai files for one or both of the genomes were not found. Please index the two genome versions using samtools faidx.\n$usage\n";
-    exit;
-} 
+}
+
+# validate genomes. file paths are global
+my $validated_genome = validate_genome();
+unless($validated_genome) {
+    die "\n$usage\n";
+}
 
 # build a hash of one-based cumulative positions for nts in the genome, based on order in the fai file
-my %genome_positions = get_genome_positions($unmasked);
+my %genome_positions = get_genome_positions();
 my $gp_max = get_gp_max(\%genome_positions);
+
+# test
+#print "\ngp_max: $gp_max\n";
+#exit;
 
 # determine reads allowed for each class
 
@@ -93,64 +128,195 @@ my @het_ns = get_nts($het_reads,$het_num);
 # Open output streams
 my $out_summary = "simulated_sRNA-seq_reads_overview.txt";
 my $out_fasta = "simulated_sRNA-seq_reads.fasta";
+
+######################  test
 # no overwrites
-if(-e $out_summary) {
-    print "FATAL: Output file $out_summary already exists - no overwrites allowed\n";
-    exit;
-}
-if(-e $out_fasta) {
-    print "FATAL: Output file $out_fasta already exists - no overwrites allowed\n";
-    exit;
-}
-(open(OUTS, ">$out_summary")) || die "Fatal: file open error\n";
-(open(OUTF, ">$out_fasta")) || die "Fatal: file open error\n";
+#if(-e $out_summary) {
+#    print "FATAL: Output file $out_summary already exists - no overwrites allowed\n";
+#    exit;
+#}
+#if(-e $out_fasta) {
+#    print "FATAL: Output file $out_fasta already exists - no overwrites allowed\n";
+#    exit;
+#}
+# test
+# (open(OUTS, ">$out_summary")) || die "Fatal: file open error\n";
+# (open(OUTF, ">$out_fasta")) || die "Fatal: file open error\n";
+######################
 
 # hash for occupied regions (those already selected)
 # structure: keys: chromosome name, value: anonymous array of integers, where each pair is a coordinate pair. 
 # this list is NOT sorted in any way
 my %occupied = ();
+my $simulated_read;
+my $simulated_read_location;
+my $simulated_read_errors;
 ## miRNA simulation
 foreach my $mir_count (@mir_ns) {
-    my $mir_locus = get_mir_locus(\$masked,\%occupied);  ## pass the masked genome, hash of occupied regions
+    my $mir_locus_size = 125;
+    my $mir_genome_type = "masked";
+    my $mir_locus = get_a_locus(\%occupied,\%genome_positions,\$gp_max, \$mir_locus_size, \$mir_genome_type);
+
+    # test
+    #print "mir_locus: $mir_locus\nmir_for_seq: $mir_for_seq\n";
+    #exit;
+    
+    my $mir_strand = pick_a_strand();
+    my($mature_mir,$star_mir) = pick_an_arm($mir_locus);
+    
+    # simulate expression
+    for(my $i = 1; $i <= $mir_count; ++$i) {
+	$simulated_read_location = simulate_mirna($mature_mir,$star_mir);
+	
 }
 
 
 ########
+sub simulate_mirna {
+    my($mir_loc,$star_loc) = @_;
+    my $pick = rand();
+    if($pick < 0.6) {
+	return $mir_loc;
+    } elsif (($pick >= 0.6) and ($pick <= 0.8)) {
+	return $star_loc;
+    } else {
+	## here here
 
-sub validate_genomes {
-    my($unmasked, $masked) = @_;
-    my $un_fai = "$unmasked" . ".fai";
-    my $m_fai = "$masked" . ".fai";
-    (open(UN, "$un_fai")) || return 0;
-    (open(M, "$m_fai")) || return 0;
-    my %unm = ();
-    my @fields = ();
-    while (<UN>) {
-	chomp;
-	@fields = split ("\t", $_);
-	$unm{$fields[0]} = $fields[1];
+sub pick_an_arm {
+    my($locus) = @_;
+    my $chr;
+    my $loc_start;
+    my $loc_stop;
+    if($locus =~ /^(\S+):(\d+)-(\d+)$/) {
+	$chr = $1;
+	$loc_start = $2;
+	$loc_stop = $3;
+    } else {
+	die "FATAL: in sub-routine pick_an_arm : failed to parse locus name $locus\n";
     }
-    close UN;
-    while (<M>) {
-	chomp;
-	@fields = split ("\t", $_);
-	if(exists($unm{$fields[0]})) {
-	    unless($unm{$fields[0]} == $fields[1]) {
-		close M;
-		return -1;
-	    }
-	} else {
-	    close M;
-	    return -1;
+    my $left_start = $loc_start + 17;
+    my $left_stop = $loc_start + 17 + 20;
+    my $right_start = $loc_start + 17 + 20 + 48;
+    my $right_stop = $loc_start + 17 + 20 + 48 + 20;
+    
+    my $pick = rand();
+    my $mir;
+    my $star;
+    if($pick >= 0.5) {
+	$mir = "$chr" . ":" . "$right_start" . "-" . "$right_stop";
+	$star = "$chr" . ":" . "$left_start" . "-" . "$left_stop";
+    } else {
+	$star = "$chr" . ":" . "$right_start" . "-" . "$right_stop";
+	$mir = "$chr" . ":" . "$left_start" . "-" . "$left_stop";
+    }
+    return ($mir,$star);
+}
+    
+sub pick_a_strand {
+    my $call = rand();
+    my $strand;
+    if($call >= 0.5) {
+	$strand = "-";
+    } else {
+	$strand = "+";
+    }
+    return $strand;
+}
+
+
+
+sub validate_genome {
+    if($opt_s) {
+	# soft-masked only
+	# is genome file there?
+	unless(-r $opt_s) {
+	    print STDERR "FATAL: Failed to find genome file $opt_s\n";
+	    return 0;
 	}
+	my $s_fai = "$opt_s" . ".fai";
+	if(-r $s_fai) {
+	    return 1;
+	} else {
+	    print STDERR "Failed to open expected fai index file $s_fai.\nAttempting to create using samtools faidx ...";
+	    system "samtools faidx $opt_s";
+	    if(-r $s_fai) {
+		print STDERR " Successful.\n";
+		return 1;
+	    } else {
+		print STDERR " FAILED, FATAL.\n";
+		return 0;
+	    }
+	}
+    } elsif (($opt_d) and ($opt_n)) {
+	unless(-r $opt_d) {
+	    print STDERR "FATAL: Failed to find genome file $opt_d\n";
+	    return 0;
+	}
+	unless(-r $opt_n) {
+	    print STDERR "FATAL: Failed to find genome file $opt_n\n";
+	    return 0;
+	}
+	my $un_fai = "$opt_n" . ".fai";
+	my $m_fai = "$opt_d" . ".fai";
+	# check -r
+	unless(-r $un_fai) {
+	    print STDERR "Failed to open expected fai index file $un_fai.\nAttempting to create using samtools faidx ... \n";
+	    system "samtools faidx $opt_n";
+	    if(-r $un_fai) {
+		print STDERR "Successful.\n";
+	    } else {
+		print STDERR "FAILED. FATAL.\n";
+		return 0;
+	    }
+	}
+	unless(-r $m_fai) {
+	    print STDERR "Failed to open expected fai index file $m_fai.\nAttempting to create using samtools faidx ... \n";
+	    system "samtools faidx $opt_d";
+	    if(-r $m_fai) {
+		print STDERR "Successful.\n";
+	    } else {
+		print STDERR "FAILED. FATAL.\n";
+		return 0;
+	    }
+	}
+	
+	open(UN, "$un_fai");
+	open(M, "$m_fai");
+	my %unm = ();
+	my @fields = ();
+	while (<UN>) {
+	    chomp;
+	    @fields = split ("\t", $_);
+	    $unm{$fields[0]} = $fields[1];
+	}
+	close UN;
+	while (<M>) {
+	    chomp;
+	    @fields = split ("\t", $_);
+	    if(exists($unm{$fields[0]})) {
+		unless($unm{$fields[0]} == $fields[1]) {
+		    close M;
+		    print STDERR "The genomes $opt_d and $opt_n are NOT identical according to their .fai indices. Cannot proceed.\n";
+		    return 0;
+		}
+	    } else {
+		close M;
+		print STDERR "The genomes $opt_d and $opt_n are NOT identical according to their .fai indices. Cannot proceed.\n";
+		return 0;
+	    }
+	}
+	close M;
+	return 1;
     }
-    close M;
-    return 1;
 }
 
 sub get_genome_positions {
-    my($genome) = @_;
-    my $fai = "$genome" . ".fai";
+    my $fai;
+    if($opt_s) {
+	$fai = "$opt_s" . ".fai";
+    } else {
+	$fai = "$opt_d" . ".fai";
+    }
     open(FAI, "$fai");
     my %hash = ();
     my $start;
@@ -162,6 +328,8 @@ sub get_genome_positions {
 	$start = 1 + $stop;
 	$stop = $start + $fields[1] - 1;
 	$hash{$fields[0]} = "$start\t$stop";
+	# test
+	#print "$fields[0]\t$start\t$stop\n";
     }
     close FAI;
     return %hash;
@@ -182,9 +350,120 @@ sub get_gp_max { ## by reference, a hash
     return $max;
 }
 
-sub get_mir_locus {
-    my($masked,$occupied) = @_; ## by reference ... scalar and hash
-    open(MASKED, "$$masked");
+sub get_a_locus {
+    my($occupied,$genome_positions,$gp_max,$locus_size,$genome_type) = @_; ## by reference. hash, hash, scalar, scalar, scalar
+    my $ok = 0;
+    my $rand_loc;
+    my $stop;
+    my $chr;
+    my $chr_start;
+    my $chr_stop;
+    my $tab;
+    my @fields = ();
+    my $true_start;
+    my $true_stop;
+    my $maybe;
+    my $raw_seq;
+    my @occ_pairs = ();
+    until ($ok == 1) {
+	# test
+	#print "\nVariable ok is $ok at start of loop\n";
+	
+	# randomly select a genomic position
+	$rand_loc = int(rand(($$gp_max-$$locus_size)));
+	$stop = $$locus_size + $rand_loc - 1;
+	
+	# test 
+	#print STDERR "\nrand_loc: $rand_loc stop: $stop\n";
+	
+	# does it fall off an end?
+	while(($chr,$tab) = each %$genome_positions) {
+	    @fields = split ("\t", $tab);
+	    if(($rand_loc >= $fields[0]) and
+	       ($rand_loc <= $fields[1])) {
+		$chr_start = $chr;
+	    }
+	    if(($stop >= $fields[0]) and 
+	       ($stop <= $fields[1])) {
+		$chr_stop = $chr;
+	    }
+	}
+	
+        # test
+	#print STDERR "\tchr_start: $chr_start chr_stop $chr_stop\n";
+	
+	unless($chr_start eq $chr_stop) {
+	    next;
+	}
+	# convert to genome coordinates
+	@fields = split("\t", $$genome_positions{$chr_start});
+	$true_start = $rand_loc - $fields[0] + 1;
+	$true_stop = $stop - $fields[0] + 1;
+	$maybe = "$chr_start" . ":" . "$true_start" . "-" . "$true_stop";
+	
+	# test
+	#print STDERR "\tmaybe: $maybe\n";
+	
+	# get the sequence, confirm it is OK
+	if($opt_s) {
+	    (open(FASTA, "samtools faidx $opt_s $maybe |")) || return 0;
+	} elsif ($$genome_type eq "masked") {
+	    (open(FASTA, "samtools faidx $opt_d $maybe |")) || return 0;
+	} elsif ($$genome_type eq "notmasked") {
+	    (open(FASTA, "samtools faidx $opt_n $maybe |")) || return 0;
+	}
+	$raw_seq = '';
+	while (<FASTA>) {
+	    chomp;
+	    unless ($_ =~ /^>/) {
+		$raw_seq .= $_;
+	    }
+	}
+	close FASTA;
+	unless(($opt_s) and ($$genome_type eq "masked")) {
+	    # upper-case it, unless we have a soft-masked genome AND we want to avoid the masked parts
+	    $raw_seq = uc $raw_seq;
+	}
+	
+	# test
+	#print STDERR "\traw_seq: $raw_seq\n";
+	
+	unless($raw_seq =~ /^[ATGC]+$/) {
+	    # test
+	    # print STDERR "\tFailed regex\n";
+	    next;
+	}
+	
+	# does it overlap with a previously accepted locus?
+	my $fail = 0;
+	if(exists($$occupied{$chr_start})) {
+	    @occ_pairs = @{$$occupied{$chr_start}};
+	    for(my $i = 0; $i < (scalar @occ_pairs); $i+=2) {
+		if((($true_start >= $occ_pairs[$i]) and ($true_start <= $occ_pairs[($i+1)])) or
+		   (($true_stop >= $occ_pairs[$i]) and ($true_stop <= $occ_pairs[($i+1)]))) {
+		    $fail = 1;
+		}
+	    }
+	}
+	if($fail) {
+	    # test
+	    #print STDERR "\tFail after comparison to occupied .. variable fail in state $fail\n";
+	    next;
+	}
+	
+	$ok = 1;
+	# test
+	#print STDERR "\tvariable ok is $ok and loop should stop\n";
+    }
+    # add it to the occupied hash
+    push(@{$occupied{$chr_start}}, $true_start);
+    push(@{$occupied{$chr_start}}, $true_stop);
+
+    # test
+    #exit;
+    
+    # return the locus coordinates
+    return $maybe
     
 }
 
