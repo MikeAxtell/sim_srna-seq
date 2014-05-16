@@ -165,53 +165,515 @@ foreach my $mir_count (@mir_ns) {
     my($mature_mir,$star_mir) = pick_an_arm($mir_locus);
     
     # test
-    print "mir_locus: $mir_locus mir_count: $mir_count mir_strand: $mir_strand mature_mir: $mature_mir star_mir: $star_mir\n";
+    #print "mir_locus: $mir_locus mir_count: $mir_count mir_strand: $mir_strand mature_mir: $mature_mir star_mir: $star_mir\n";
     
     ++$mir_locus_n;
     print OUTS "MIRNA_$mir_locus_n\t$mir_locus\t$mir_strand\t$mir_count\n";
 	
     # simulate expression
+    # get all possible perfect sub-sequences and their coordinates
+    # keys: "miR0:0" or "star0:0" form. Values: tab-delimited coordinates, sequence
+    my %mir_perfects = get_mir_perfects($mir_locus,$mir_locus_for_seq,$mir_strand,$mature_mir,$star_mir);
+    my $mir_key;
+    
     for(my $i = 1; $i <= $mir_count; ++$i) {
-	$simulated_read_location = simulate_mirna($mature_mir,$star_mir,$mir_strand);
-	
-	($simulated_read,$simulated_read_errors) = errorify_read($simulated_read_location,$mir_strand);
+	$mir_key = sample_mir_keys();
+	unless(exists($mir_perfects{$mir_key})) {
+	    die "FATAL: key $mir_key not found in hash mir_perfects .. blame Axtell!\n";
+	}
+	my @mir_vals = split("\t", $mir_perfects{$mir_key});
+	$simulated_read_location = $mir_vals[0];
+	($simulated_read,$simulated_read_errors) = errorify_read($mir_vals[1]);
 	
 	# test
 	#print "\tsimulated_read_location: $simulated_read_location simuated_read: $simulated_read simulated_read_errors: $simulated_read_errors\n";
-	$fasta_header = ">MIRNA_$mir_locus_n" . "__" . "$i" . "__" . "$simulated_read_location" . "__" . "$mir_strand" . "__" . "$simulated_read_errors";
+	$fasta_header = ">MIRNA_$mir_locus_n" . "_" . "$i" . "_" . "$simulated_read_location" . "_" . "$mir_strand" . "_" . "$simulated_read_errors";
 	print OUTF "$fasta_header\n$simulated_read\n";
     }
 }
 
+## tasiRNA simulation
+my $tasi_locus_n = 0;
+
+foreach my $tasi_count (@tasi_ns) {
+    my $tasi_locus_size = 140;
+    my $tasi_genome_type = "masked";
+    my ($tasi_locus,$tasi_locus_for_seq) = get_a_locus(\%occupied,\%genome_positions,\$gp_max, \$tasi_locus_size, \$tasi_genome_type);
+    
+    ++$tasi_locus_n;
+    print OUTS "TAS_$tasi_locus_n\t$tasi_locus\t\.\t$tasi_count\n";
+    
+    # simulate tasiRNA expression
+    # get all possible tasiRNAs to be sampled from .. 
+    # 6 phases of 21mers, with 3'end variants of 20mers, 22mers.
+    # keys are in the form "top_[phase]_[size]", or "bot_[phase]_[size]", where phase is 0-5, and size is 20, 21, or 22
+    # values are tab-delimited read coordinates, and sequence
+    my %tasi_perfects = get_tasi_perfects($tasi_locus,$tasi_locus_for_seq);
+    my $tasi_key;
+    for(my $j = 1; $j <= $tasi_count; ++$j) {
+	$tasi_key = sample_tasi_keys();
+	unless(exists($tasi_perfects{$tasi_key})) {
+	    die "FATAL: key $tasi_key not found in hash tasi_perfects .. blame Axtell!\n";
+	}
+	my @tasi_vals = split ("\t", $tasi_perfects{$tasi_key});
+	$simulated_read_location = $tasi_vals[0];
+	($simulated_read,$simulated_read_errors) = errorify_read($tasi_vals[1]);
+	my $tasi_read_strand;
+	if($tasi_key =~ /^top_/) {
+	    $tasi_read_strand = "+";
+	} else {
+	    $tasi_read_strand = "-";
+	}
+	$fasta_header = ">TAS_$tasi_locus_n" . "_" . "$j" . "_" . "$simulated_read_location" . "_" . "$tasi_read_strand" . "_" . "$simulated_read_errors";
+	print OUTF "$fasta_header\n$simulated_read\n";
+    }
+}
+
+## heterochromatic siRNA simulation
+my $het_locus_n = 0;
+foreach my $het_count (@het_ns) {
+    my $het_locus_size = 100;
+    my $het_genome_type = "notmasked";
+    my ($het_locus,$het_locus_for_seq) = get_a_locus(\%occupied,\%genome_positions,\$gp_max, \$het_locus_size, \$het_genome_type);
+    
+    ++$het_locus_n;
+    print OUTS "HET_$het_locus_n\t$het_locus\t\.\t$het_count\n";
+    
+    # simulate het siRNA expresion
+    # get all possible het siRNA to be sampled from .. 
+    
+    my %het_perfects = get_het_perfects($het_locus,$het_locus_for_seq);
+    my $het_key;
+    for(my $k = 1; $k <= $het_count; ++$k) {
+	$het_key = sample_het_keys($het_locus_for_seq);
+	unless(exists($het_perfects{$het_key})) {
+	    die "FATAL: failed to find key $het_key in hash het_perfects .. blame Axtell!\n";
+	}
+	my @het_vals = split ("\t", $het_perfects{$het_key});
+	$simulated_read_location = $het_vals[0];
+	($simulated_read,$simulated_read_errors) = errorify_read($het_vals[1]);
+	my $het_read_strand;
+	if($het_key =~ /^top_/) {
+	    $het_read_strand = "+";
+	} else {
+	    $het_read_strand = "-";
+	}
+	$fasta_header = ">HET_$het_locus_n" . "_" . "$k" . "_" . "$simulated_read_location" . "_" . "$het_read_strand" . "_" . "$simulated_read_errors";
+	print OUTF "$fasta_header\n$simulated_read\n";
+    }
+}
+close OUTF;
+close OUTS;
 
 
 ########
-sub errorify_read {
-    my($location,$strand) = @_;
-    # get perfect read sequence
-    if($opt_s) {
-	(open(FASTA, "samtools faidx $opt_s $location |")) || die "FATAL in sub-routine errorify read. Failed to open FASTA with samtools faidx\n";
+sub sample_het_keys {
+    my($seq) = @_;
+    my $strand_pick = rand();
+    my $strand;
+    if($strand_pick < 0.5) {
+	$strand = "top";
     } else {
-	# always can use the unmasked at this point
-	(open(FASTA, "samtools faidx $opt_n $location |")) || die "FATAL in sub-routine errorify read. Failed to open FASTA with samtools faidx\n";
+	$strand = "bot";
     }
-    my $for_perfect_seq;
-    while (<FASTA>) {
-	chomp;
-	unless($_ =~ /^>/) {
-	    $for_perfect_seq .= uc $_;
-	}
+    my $pos_limit = (length $seq) - 25;
+    my $pos = int(rand($pos_limit));
+    my $size_pick = rand();
+    my $size;
+    if($size_pick < 0.9) {
+	$size = 24;
+    } elsif (($size_pick >= 0.9) and ($size_pick < 0.95)) {
+	$size = 23;
+    } elsif (($size_pick >= 0.95) and ($size_pick < 0.98)) {
+	$size = 22;
+    } else {
+	$size = 21;
     }
-    close FASTA;
-    # revcomp if needed
-    my $perfect;
+    my $key = "$strand" . "_" . "$pos" . "_" . "$size";
+    return $key;
+}
+
+sub get_het_perfects {
+    my($locus,$for_seq) = @_;
+    # parse locus
+    my $chr;
+    my $start;
+    my $stop;
+    if($locus =~ /^(\S+):(\d+)-(\d+)$/) {
+	$chr = $1;
+	$start = $2;
+	$stop = $3;
+    } else {
+	die "FATAL in sub-routine get_het_perfects .. could not parse locus $locus\n";
+    }
+    my $read_start;
+    my $read_stop;
+    my $read_loc;
+    my $read_seq;
+    my $key;
+    my $value;
+    my %hash = ();
+    
+    for(my $i = 0; $i < ((length $for_seq) - 24); ++$i) {
+	# 24
+	$read_seq = substr($for_seq,$i,24);
+	$read_start = $start + $i;
+	$read_stop = $start + $i + 24 - 1;
+	$read_loc = "$chr" . ":" . "$read_start" . "-" . "$read_stop";
+	$key = "top_" . "$i" . "_" . "24";
+	$value = "$read_loc\t$read_seq";
+	$hash{$key} = $value;
+	# now bot
+	$read_seq = revcomp(substr($for_seq,$i,24));
+	$key = "bot_" . "$i" . "_" . "24";
+	$value = "$read_loc\t$read_seq";
+	$hash{$key} = $value;
+	
+	# top strand, 23
+	$read_seq = substr($for_seq,$i,23);
+	$read_start = $start + $i;
+	$read_stop = $start + $i + 23 - 1;
+	$read_loc = "$chr" . ":" . "$read_start" . "-" . "$read_stop";
+	$key = "top_" . "$i" . "_" . "23";
+	$hash{$key} = $value;
+	# now bot
+	$read_seq = revcomp(substr($for_seq,$i,23));
+	$key = "bot_" . "$i" . "_" . "23";
+	$value = "$read_loc\t$read_seq";
+	$hash{$key} = $value;
+	
+	# top strand, 22
+	$read_seq = substr($for_seq,$i,22);
+	$read_start = $start + $i;
+	$read_stop = $start + $i + 22 - 1;
+	$read_loc = "$chr" . ":" . "$read_start" . "-" . "$read_stop";
+	$key = "top_" . "$i" . "_" . "22";
+	$hash{$key} = $value;
+	# now bot
+	$read_seq = revcomp(substr($for_seq,$i,22));
+	$key = "bot_" . "$i" . "_" . "22";
+	$value = "$read_loc\t$read_seq";
+	$hash{$key} = $value;
+
+	# top strand, 21
+	$read_seq = substr($for_seq,$i,21);
+	$read_start = $start + $i;
+	$read_stop = $start + $i + 21 - 1;
+	$read_loc = "$chr" . ":" . "$read_start" . "-" . "$read_stop";
+	$key = "top_" . "$i" . "_" . "21";
+	$hash{$key} = $value;
+	# now bot
+	$read_seq = revcomp(substr($for_seq,$i,21));
+	$key = "bot_" . "$i" . "_" . "21";
+	$value = "$read_loc\t$read_seq";
+	$hash{$key} = $value;
+    }
+    return %hash;
+}
+	
+
+sub sample_tasi_keys {
+    my $strand_pick = rand();
+    my $strand;
+    if($strand_pick < 0.5) {
+	$strand = "top";
+    } else {
+	$strand = "bot";
+    }
+    my $phase = int(rand(5));
+    my $size_pick = rand();
+    my $size;
+    if($size_pick < 0.8) {
+	$size = 21;
+    } elsif (($size_pick >= 0.8) and ($size_pick < 0.9)) {
+	$size = 20;
+    } else {
+	$size = 22;
+    }
+    my $key = "$strand" . "_" . "$phase" . "_" . "$size";
+    return $key;
+}
+
+sub get_tasi_perfects {
+    my($locus,$locus_for_seq) = @_;
+    my %hash = ();
+    # parse locus info
+    my $chr;
+    my $start;
+    my $stop;
+    if($locus =~ /^(\S+):(\d+)-(\d+)$/) {
+	$chr = $1;
+	$start = $2;
+	$stop = $3;
+    } else {
+	die "FATAL in sub-routine get_tasi_perfects .. failed to parse locus $locus\n";
+    }
+    my $key;
+    my $phase;
+    my $offset;
+    my $top_seq;
+    my $top_start;
+    my $top_stop;
+    my $top_loc;
+    my $value;
+    my $bot_seq;
+    my $bot_start;
+    my $bot_stop;
+    my $bot_loc;
+    for($phase = 0; $phase <= 5; ++$phase) {
+	# top strand first
+	$offset = 4 + (21 * $phase);
+	# 21 mer
+	$top_seq = substr($locus_for_seq,$offset,21);
+	$top_start = $start + $offset;
+	$top_stop = $start + $offset + 21 - 1;
+	$top_loc = "$chr" . ":" . "$top_start" . "-" . "$top_stop";
+	$key = "top_$phase" . "_21";
+	$value = "$top_loc\t$top_seq";
+	$hash{$key} = $value;
+	# 20 mer
+	$top_seq = substr($locus_for_seq,$offset,20);
+	$top_start = $start + $offset;
+	$top_stop = $start + $offset + 20 - 1;
+	$top_loc = "$chr" . ":" . "$top_start" . "-" . "$top_stop";
+	$key = "top_$phase" . "_20";
+	$value = "$top_loc\t$top_seq";
+	$hash{$key} = $value;
+	# 22 mer
+	$top_seq = substr($locus_for_seq,$offset,22);
+	$top_start = $start + $offset;
+	$top_stop = $start + $offset + 22 - 1;
+	$top_loc = "$chr" . ":" . "$top_start" . "-" . "$top_stop";
+	$key = "top_$phase" . "_22";
+	$value = "$top_loc\t$top_seq";
+	$hash{$key} = $value;
+	
+	# bottom strand now
+	$offset = 2 + (21 * $phase);
+	# 21 mer
+	$bot_seq = revcomp(substr($locus_for_seq,$offset,21));
+	$bot_start = $start + $offset;
+	$bot_stop = $start + $offset + 21 - 1;
+	$bot_loc = "$chr" . ":" . "$bot_start" . "-" . "$bot_stop";
+	$key = "bot_$phase" . "_21";
+	$value = "$bot_loc\t$bot_seq";
+	$hash{$key} = $value;
+	# 20 mer
+	my $offsetx = $offset + 1;
+	$bot_seq = revcomp(substr($locus_for_seq,$offsetx,20));
+	$bot_start = $start + $offsetx;
+	$bot_stop = $start + $offsetx + 20 - 1;
+	$bot_loc = "$chr" . ":" . "$bot_start" . "-" . "$bot_stop";
+	$key = "bot_$phase" . "_20";
+	$value = "$bot_loc\t$bot_seq";
+	$hash{$key} = $value;
+	# 22 mer
+	$offsetx = $offset - 1;
+	$bot_seq = revcomp(substr($locus_for_seq,$offsetx,22));
+	$bot_start = $start + $offsetx;
+	$bot_stop = $start + $offsetx + 22 - 1;
+	$bot_loc = "$chr" . ":" . "$bot_start" . "-" . "$bot_stop";
+	$key = "bot_$phase" . "_22";
+	$value = "$bot_loc\t$bot_seq";
+	$hash{$key} = $value;
+    }
+    
+    # test
+    #while((my $x, my $y) = each %hash) {
+	#print "$x\t$y\n";
+    #}
+    #exit;
+    
+    return %hash;
+}
+
+sub revcomp {
+    my($sense) = @_;
+    my $revcomp = reverse $sense;
+    $revcomp =~ tr/ATCG/TAGC/;
+    return $revcomp;
+}
+
+sub get_mir_mod {
+    my($chr,$start,$stop,$strand,$type) = @_;
+    my @fields = split (":",$type);
+    if($strand eq "+") {
+	$start = $start + $fields[0];
+	$stop = $stop + $fields[1];
+    } elsif ($strand eq "-") {
+	$start = $start + $fields[1];
+	$stop = $stop + $fields[0];
+    }
+    my $out = "$chr" . ":" . "$start" . "-" . "$stop";
+    return $out;
+}
+
+sub get_mir_perfects {
+    my($locus,$for_seq,$strand,$mir,$star) = @_;
+    my %hash = ();
+    my $mod;
+    my $modtype;
+    my $modseq;
+    my $mir_chr;
+    my $mir_start;
+    my $mir_stop;
+    my $key;
+    # miRNA and variants
+    if($mir =~ /^(\S+):(\d+)-(\d+)$/) {
+	$mir_chr = $1;
+	$mir_start = $2;
+	$mir_stop = $3;
+    } else {
+	die "FATAL in sub-routine get_mir_perfects .. failed to parse location $mir\n";
+    }
+    $modtype = "0:0";
+    $mod = get_mir_mod($mir_chr,$mir_start,$mir_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "miR" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "0:-1";
+    $mod = get_mir_mod($mir_chr,$mir_start,$mir_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "miR" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "0:-2";
+    $mod = get_mir_mod($mir_chr,$mir_start,$mir_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "miR" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "1:1";
+    $mod = get_mir_mod($mir_chr,$mir_start,$mir_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "miR" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "1:0";
+    $mod = get_mir_mod($mir_chr,$mir_start,$mir_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "miR" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "-1:-1";
+    $mod = get_mir_mod($mir_chr,$mir_start,$mir_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "miR" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "-1:-2";
+    $mod = get_mir_mod($mir_chr,$mir_start,$mir_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "miR" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "-2:-2";
+    $mod = get_mir_mod($mir_chr,$mir_start,$mir_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "miR" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "-2:-3";
+    $mod = get_mir_mod($mir_chr,$mir_start,$mir_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "miR" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+    
+    ## now the star variants
+    my $star_chr;
+    my $star_start;
+    my $star_stop;
+    
+    if($star =~ /^(\S+):(\d+)-(\d+)$/) {
+	$star_chr = $1;
+	$star_start = $2;
+	$star_stop = $3;
+    } else {
+	die "FATAL in sub-routine get_mir_perfects .. failed to parse location $star\n";
+    }
+    
+    $modtype = "0:0";
+    $mod = get_mir_mod($star_chr,$star_start,$star_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "star" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "0:-1";
+    $mod = get_mir_mod($star_chr,$star_start,$star_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "star" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "0:-2";
+    $mod = get_mir_mod($star_chr,$star_start,$star_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "star" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "1:1";
+    $mod = get_mir_mod($star_chr,$star_start,$star_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "star" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "1:0";
+    $mod = get_mir_mod($star_chr,$star_start,$star_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "star" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+
+    $modtype = "-1:-1";
+    $mod = get_mir_mod($star_chr,$star_start,$star_stop,$strand,$modtype);
+    $modseq = get_mir_modseq($mod,$locus,$for_seq,$strand);
+    $key = "star" . "$modtype";
+    $hash{$key} = "$mod\t$modseq";
+    
+    # test
+    #while((my $x, my $y) = each %hash) {
+	#print "$x\t$y\n";
+    #}
+    #exit;
+    
+    return %hash;
+    
+}
+
+sub get_mir_modseq {
+    my($mod,$locus,$for_seq,$strand) = @_;
+    # parse
+    my $loc_start;
+    my $loc_stop;
+    if($locus =~ /^\S+:(\d+)-(\d+)$/) {
+	$loc_start = $1;
+	$loc_stop = $2;
+    } else {
+	die "FATAL in sub-routine get_mir_modseq .. could not parse location $locus\n";
+    }
+    my $mod_start;
+    my $mod_stop;
+    if($mod =~ /^\S+:(\d+)-(\d+)$/) {
+	$mod_start = $1;
+	$mod_stop = $2;
+    } else {
+	die "FATAL in sub-routine get_mir_modseq .. could not parse location $mod\n";
+    }
+    my $offset = $mod_start - $loc_start; ## zero-based
+    my $length = $mod_stop - $mod_start + 1;
+    my $modseq_f = substr($for_seq,$offset,$length);
+    my $modseq;
     if($strand eq "-") {
-	$perfect = reverse $for_perfect_seq;
-	$perfect =~ tr/ATCG/TAGC/;
+	$modseq = reverse $modseq_f;
+	$modseq =~ tr/ATGC/TACG/;
     } else {
-	$perfect = $for_perfect_seq;
+	$modseq = $modseq_f;
     }
-    # errorify
+    return $modseq;
+}
+    
+    
+sub errorify_read {
+    my($perfect) = @_;
     my $pick = rand();
     my $final;
     my $errors = 0;
@@ -248,98 +710,41 @@ sub get_new_base {
 }
     
 
-sub simulate_mirna {
-    my($mir_loc,$star_loc,$mir_strand) = @_;
+sub sample_mir_keys {
     my $pick = rand();
-    my $chr;
-    my $start;
-    my $stop;
-    my $mod;
-    my $modtype;
+    my $key;
     if($pick < 0.6) {
-	return $mir_loc;
+	$key = "miR0:0";
     } elsif (($pick >= 0.6) and ($pick < 0.8)) {
-	return $star_loc;
-    } elsif (($pick >= 0.8) and ($pick < 0.95)) {
-	# a variant of the mature miRNA
-	# must parse the mir_loc
-	if($mir_loc =~ /^(\S+):(\d+)-(\d+)$/) {
-	    $chr = $1;
-	    $start = $2;
-	    $stop = $3;
-	} else {
-	    die "FATAL in sub-routine simulate_mirna .. failed to parse location $mir_loc\n";
-	}
-	if(($pick >= 0.8) and ($pick < 0.84)) {
-	    # 0:-1
-	    $modtype = "0:-1";
-	} elsif (($pick >= 0.84) and ($pick < 0.85)) {
-	    # 0:-2
-	    $modtype = "0:-2";
-	} elsif (($pick >= 0.85) and ($pick < 0.89)) {
-	    # 1:1
-	    $modtype = "1:1";
-	} elsif (($pick >= 0.89) and ($pick < 0.9)) {
-	    # 1:0
-	    $modtype = "1:0";
-	} elsif (($pick >= 0.9) and ($pick < 0.92)) {
-	    # -1:-1
-	    $modtype = "-1:-1";
-	} elsif (($pick >= 0.92) and ($pick < 0.925)) {
-	    # -1:-2
-	    $modtype = "-1:-2";
-	} elsif (($pick >= 0.925) and ($pick < 0.945)) {
-	    # -2:-2
-	    $modtype = "-2:-2";
-	} elsif (($pick >= 0.945) and ($pick < 0.95)) {
-	    # -2:-3
-	    $modtype = "-2:-3";
-	}
-	$mod = get_mir_mod($chr,$start,$stop,$mir_strand,$modtype);
-	return $mod;
-    } elsif ($pick >= 0.95) {
-	# a variant of the mir-star
-	# must parse the star_loc
-	if($star_loc =~ /^(\S+):(\d+)-(\d+)$/) {
-	    $chr = $1;
-	    $start = $2;
-	    $stop = $3;
-	} else {
-	    die "FATAL in sub-routine simulate_mirna .. failed to parse location $star_loc\n";
-	}
-	if(($pick >= 0.95) and ($pick < 0.96)) {
-	    # 0:-1
-	    $modtype = "0:-1";
-	} elsif (($pick >= 0.96) and ($pick < 0.965)) {
-	    # 0:-2
-	    $modtype = "0:-2";
-	} elsif (($pick >= 0.965) and ($pick < 0.975)) {
-	    # 1:1
-	    $modtype = "1:1";
-	} elsif (($pick >= 0.975) and ($pick < 0.98)) {
-	    # 1:0
-	    $modtype = "1:0";
-	} elsif ($pick >= 0.98) {
-	    # -1:-1
-	    $modtype = "-1:-1";
-	}
-	$mod = get_mir_mod($chr,$start,$stop,$mir_strand,$modtype);
-	return $mod;
+	$key = "star0:0";
+    } elsif (($pick >= 0.8) and ($pick < 0.84)) {
+	$key = "miR0:-1";
+    } elsif (($pick >= 0.84) and ($pick < 0.85)) {
+	$key = "miR0:-2";
+    } elsif (($pick >= 0.85) and ($pick < 0.89)) {
+	$key = "miR1:1";
+    } elsif (($pick >= 0.89) and ($pick < 0.9)) {
+	$key = "miR1:0";
+    } elsif (($pick >= 0.9) and ($pick < 0.92)) {
+	$key = "miR-1:-1";
+    } elsif (($pick >= 0.92) and ($pick < 0.925)) {
+	$key = "miR-1:-2";
+    } elsif (($pick >= 0.925) and ($pick < 0.945)) {
+	$key = "miR-2:-2";
+    } elsif (($pick >= 0.945) and ($pick < 0.95)) {
+	$key = "miR-2:-3";
+    } elsif (($pick >= 0.95) and ($pick < 0.96)) {
+	$key = "star0:-1";
+    } elsif (($pick >= 0.96) and ($pick < 0.965)) {
+	$key = "star0:-2";
+    } elsif (($pick >= 0.965) and ($pick < 0.975)) {
+	$key = "star1:1";
+    } elsif (($pick >= 0.975) and ($pick < 0.98)) {
+	$key = "star1:0";
+    } elsif ($pick >= 0.98) {
+	$key = "star-1:-1";
     }
-}
-
-sub get_mir_mod {
-    my($chr,$start,$stop,$strand,$type) = @_;
-    my @fields = split (":",$type);
-    if($strand eq "+") {
-	$start = $start + $fields[0];
-	$stop = $stop + $fields[1];
-    } elsif ($strand eq "-") {
-	$start = $start + $fields[1];
-	$stop = $stop + $fields[0];
-    }
-    my $out = "$chr" . ":" . "$start" . "-" . "$stop";
-    return $out;
+    return $key;
 }
 
 sub pick_an_arm {
