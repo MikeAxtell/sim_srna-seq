@@ -29,7 +29,7 @@ Options:
 -v : print version number and quit
 -h : print help message and quit
 -r : desired total number of reads, in millions. Default: 5
--e : per-nt sequencing error rate. Default: 1E-4
+-e : per-read probability of a single nt sequencing error (substitution). Default: 1E-4
 
 ";
 
@@ -129,19 +129,19 @@ my @het_ns = get_nts($het_reads,$het_num);
 my $out_summary = "simulated_sRNA-seq_reads_overview.txt";
 my $out_fasta = "simulated_sRNA-seq_reads.fasta";
 
-######################  test
+
 # no overwrites
-#if(-e $out_summary) {
-#    print "FATAL: Output file $out_summary already exists - no overwrites allowed\n";
-#    exit;
-#}
-#if(-e $out_fasta) {
-#    print "FATAL: Output file $out_fasta already exists - no overwrites allowed\n";
-#    exit;
-#}
-# test
-# (open(OUTS, ">$out_summary")) || die "Fatal: file open error\n";
-# (open(OUTF, ">$out_fasta")) || die "Fatal: file open error\n";
+if(-e $out_summary) {
+    print "FATAL: Output file $out_summary already exists - no overwrites allowed\n";
+    exit;
+}
+if(-e $out_fasta) {
+    print "FATAL: Output file $out_fasta already exists - no overwrites allowed\n";
+    exit;
+}
+
+(open(OUTS, ">$out_summary")) || die "Fatal: file open error\n";
+(open(OUTF, ">$out_fasta")) || die "Fatal: file open error\n";
 ######################
 
 # hash for occupied regions (those already selected)
@@ -151,36 +151,196 @@ my %occupied = ();
 my $simulated_read;
 my $simulated_read_location;
 my $simulated_read_errors;
+my $fasta_header;
+
 ## miRNA simulation
+my $mir_locus_n = 0;
+
 foreach my $mir_count (@mir_ns) {
     my $mir_locus_size = 125;
     my $mir_genome_type = "masked";
-    my $mir_locus = get_a_locus(\%occupied,\%genome_positions,\$gp_max, \$mir_locus_size, \$mir_genome_type);
-
-    # test
-    #print "mir_locus: $mir_locus\nmir_for_seq: $mir_for_seq\n";
-    #exit;
+    my ($mir_locus,$mir_locus_for_seq) = get_a_locus(\%occupied,\%genome_positions,\$gp_max, \$mir_locus_size, \$mir_genome_type);
     
     my $mir_strand = pick_a_strand();
     my($mature_mir,$star_mir) = pick_an_arm($mir_locus);
     
+    # test
+    print "mir_locus: $mir_locus mir_count: $mir_count mir_strand: $mir_strand mature_mir: $mature_mir star_mir: $star_mir\n";
+    
+    ++$mir_locus_n;
+    print OUTS "MIRNA_$mir_locus_n\t$mir_locus\t$mir_strand\t$mir_count\n";
+	
     # simulate expression
     for(my $i = 1; $i <= $mir_count; ++$i) {
-	$simulated_read_location = simulate_mirna($mature_mir,$star_mir);
+	$simulated_read_location = simulate_mirna($mature_mir,$star_mir,$mir_strand);
 	
+	($simulated_read,$simulated_read_errors) = errorify_read($simulated_read_location,$mir_strand);
+	
+	# test
+	#print "\tsimulated_read_location: $simulated_read_location simuated_read: $simulated_read simulated_read_errors: $simulated_read_errors\n";
+	$fasta_header = ">MIRNA_$mir_locus_n" . "__" . "$i" . "__" . "$simulated_read_location" . "__" . "$mir_strand" . "__" . "$simulated_read_errors";
+	print OUTF "$fasta_header\n$simulated_read\n";
+    }
 }
 
 
+
 ########
-sub simulate_mirna {
-    my($mir_loc,$star_loc) = @_;
+sub errorify_read {
+    my($location,$strand) = @_;
+    # get perfect read sequence
+    if($opt_s) {
+	(open(FASTA, "samtools faidx $opt_s $location |")) || die "FATAL in sub-routine errorify read. Failed to open FASTA with samtools faidx\n";
+    } else {
+	# always can use the unmasked at this point
+	(open(FASTA, "samtools faidx $opt_n $location |")) || die "FATAL in sub-routine errorify read. Failed to open FASTA with samtools faidx\n";
+    }
+    my $for_perfect_seq;
+    while (<FASTA>) {
+	chomp;
+	unless($_ =~ /^>/) {
+	    $for_perfect_seq .= uc $_;
+	}
+    }
+    close FASTA;
+    # revcomp if needed
+    my $perfect;
+    if($strand eq "-") {
+	$perfect = reverse $for_perfect_seq;
+	$perfect =~ tr/ATCG/TAGC/;
+    } else {
+	$perfect = $for_perfect_seq;
+    }
+    # errorify
     my $pick = rand();
+    my $final;
+    my $errors = 0;
+    if($pick < $opt_e) {
+	# pick a random location
+	my $change_pos = int(rand(length $perfect));
+	my @bases = split ('', $perfect);
+	my $new_base = get_new_base($bases[$change_pos]);
+	$bases[$change_pos] = $new_base;
+	$final = join('', @bases);
+	$errors = 1;
+    } else {
+	$final = $perfect;
+    }
+    return ($final,$errors);
+}
+
+sub get_new_base {
+    my($old_base) = @_;
+    my $new_base = "N";
+    until (($new_base ne "N") and ($new_base ne "$old_base")) {
+	my $pick = int(rand(4));
+	if($pick == 0) {
+	    $new_base = "A";
+	} elsif ($pick == 1) {
+	    $new_base = "T";
+	} elsif ($pick == 2) {
+	    $new_base = "G";
+	} elsif ($pick == 3) {
+	    $new_base = "C";
+	}
+    }
+    return $new_base;
+}
+    
+
+sub simulate_mirna {
+    my($mir_loc,$star_loc,$mir_strand) = @_;
+    my $pick = rand();
+    my $chr;
+    my $start;
+    my $stop;
+    my $mod;
+    my $modtype;
     if($pick < 0.6) {
 	return $mir_loc;
-    } elsif (($pick >= 0.6) and ($pick <= 0.8)) {
+    } elsif (($pick >= 0.6) and ($pick < 0.8)) {
 	return $star_loc;
-    } else {
-	## here here
+    } elsif (($pick >= 0.8) and ($pick < 0.95)) {
+	# a variant of the mature miRNA
+	# must parse the mir_loc
+	if($mir_loc =~ /^(\S+):(\d+)-(\d+)$/) {
+	    $chr = $1;
+	    $start = $2;
+	    $stop = $3;
+	} else {
+	    die "FATAL in sub-routine simulate_mirna .. failed to parse location $mir_loc\n";
+	}
+	if(($pick >= 0.8) and ($pick < 0.84)) {
+	    # 0:-1
+	    $modtype = "0:-1";
+	} elsif (($pick >= 0.84) and ($pick < 0.85)) {
+	    # 0:-2
+	    $modtype = "0:-2";
+	} elsif (($pick >= 0.85) and ($pick < 0.89)) {
+	    # 1:1
+	    $modtype = "1:1";
+	} elsif (($pick >= 0.89) and ($pick < 0.9)) {
+	    # 1:0
+	    $modtype = "1:0";
+	} elsif (($pick >= 0.9) and ($pick < 0.92)) {
+	    # -1:-1
+	    $modtype = "-1:-1";
+	} elsif (($pick >= 0.92) and ($pick < 0.925)) {
+	    # -1:-2
+	    $modtype = "-1:-2";
+	} elsif (($pick >= 0.925) and ($pick < 0.945)) {
+	    # -2:-2
+	    $modtype = "-2:-2";
+	} elsif (($pick >= 0.945) and ($pick < 0.95)) {
+	    # -2:-3
+	    $modtype = "-2:-3";
+	}
+	$mod = get_mir_mod($chr,$start,$stop,$mir_strand,$modtype);
+	return $mod;
+    } elsif ($pick >= 0.95) {
+	# a variant of the mir-star
+	# must parse the star_loc
+	if($star_loc =~ /^(\S+):(\d+)-(\d+)$/) {
+	    $chr = $1;
+	    $start = $2;
+	    $stop = $3;
+	} else {
+	    die "FATAL in sub-routine simulate_mirna .. failed to parse location $star_loc\n";
+	}
+	if(($pick >= 0.95) and ($pick < 0.96)) {
+	    # 0:-1
+	    $modtype = "0:-1";
+	} elsif (($pick >= 0.96) and ($pick < 0.965)) {
+	    # 0:-2
+	    $modtype = "0:-2";
+	} elsif (($pick >= 0.965) and ($pick < 0.975)) {
+	    # 1:1
+	    $modtype = "1:1";
+	} elsif (($pick >= 0.975) and ($pick < 0.98)) {
+	    # 1:0
+	    $modtype = "1:0";
+	} elsif ($pick >= 0.98) {
+	    # -1:-1
+	    $modtype = "-1:-1";
+	}
+	$mod = get_mir_mod($chr,$start,$stop,$mir_strand,$modtype);
+	return $mod;
+    }
+}
+
+sub get_mir_mod {
+    my($chr,$start,$stop,$strand,$type) = @_;
+    my @fields = split (":",$type);
+    if($strand eq "+") {
+	$start = $start + $fields[0];
+	$stop = $stop + $fields[1];
+    } elsif ($strand eq "-") {
+	$start = $start + $fields[1];
+	$stop = $stop + $fields[0];
+    }
+    my $out = "$chr" . ":" . "$start" . "-" . "$stop";
+    return $out;
+}
 
 sub pick_an_arm {
     my($locus) = @_;
@@ -463,7 +623,7 @@ sub get_a_locus {
     #exit;
     
     # return the locus coordinates
-    return $maybe
+    return ($maybe,$raw_seq);
     
 }
 
