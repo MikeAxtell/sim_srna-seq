@@ -1,0 +1,180 @@
+SYNOPSIS
+    sim_sRNA-seq.pl
+
+    Simulation of plant small RNA-seq data
+
+    Copyright (C) 2014 Michael J. Axtell
+
+AUTHOR
+    Michael J. Axtell, Penn State University, mja18@psu.edu
+
+LICENSE
+    This program is free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your
+    option) any later version.
+
+        This program is distributed in the hope that it will be useful,
+        but WITHOUT ANY WARRANTY; without even the implied warranty of
+        MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        GNU General Public License for more details.
+
+        You should have received a copy of the GNU General Public License
+        along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+DEPENDENCIES
+    perl 5 <www.perl.org> at /usr/bin/perl
+
+    samtools <http://samtools.sourceforge.net/> in the PATH
+
+INSTALL
+    Ensure dependicies are present (see above). Add the script
+    sim_sRNA-seq.pl to your PATH
+
+USAGE
+        sim_sRNA-seq.pl [options] -s soft-masked-genome.fa                                                                                        
+
+    --- OR, LESS PREFERRED ---
+
+        sim_sRNA-seq.pl [options] -d hard-masked-genome.fa -n not-masked-genome.fa      
+
+OPTIONS
+    Options:
+
+    -s : path to soft-masked genome. Lower-case letters are assumed
+    repeat-masked. If -s is specified, neither -d nor -n can be specified.
+
+    -d : path to hard-masked genome. If -d is specified, -n must also be
+    specified, and -s cannot be specified.
+
+    -n : path to not-masked genome. If -n is specified, -d must also be
+    specified, and -s cannot be specified.
+
+    -v : print version number and quit.
+
+    -h : print help message and quit.
+
+    -r : desired number of reads, in millions. Default: 5.
+
+    -e : per-read probability of a single nt sequencing error
+    (substitution). Default: 1E-4.
+
+METHODS
+  Read numbers and types
+    30% of the simulated reads will come from roughly 100 MIRNA loci, 5% of
+    the simulated reads will come from roughly 20 tasiRNA/phased secondary
+    siRNA loci, and the remaining 65% from roughly 10,000 heterochromatic
+    siRNA loci.
+
+    The abundance of reads from each locus is distributed on a log-linear
+    scale (e.g., plotting the log10 of read number as a function of
+    abundance rank yields a straight line).
+
+  MIRNA simulation
+    Valid MIRNA loci have no overlap with repeat-masked regions of the
+    genome. The locus has a hypothetical size of 125nts, of which all must
+    be ATGC bases (e.g. no ambiguous nts.).
+
+    The strand of the MIRNA precursor is randomly selected, as is the arm
+    from which the mature miRNA and star come from. There is no actual
+    hairpin sequence necessarily present at MIRNA loci .. it is only the
+    pattern of reads that is being simulated.
+
+    The mature miRNA and mature miRNA* are defined as 'master' positions.
+    The left-most 'master' position in a locus is a 21-mer starting at
+    position 17 of the locus. The right-most 'master' position is a 21 mer
+    at position 85. Assignment of the arm (i.e., whether the left-most or
+    right-most 'master' position is the miRNA or miRNA*) is random at each
+    locus.
+
+    Once a locus has been found and 'master' positions defined, each read is
+    simulated according to the following probabilities. In the following
+    list, "miR" means mature miRNA, "star" means miRNA*. The numbers after
+    each indicate the offset at 5' and 3' ends relative to the master
+    positions. So, "miR0:1" means the mature miRNA sequence, starting at the
+    master 5' end, and ending 1 nt after the master 3' end.
+
+    60% miR0:0, 20% star0:0,, 4% miR0:-1, 1% miR0:-2, 4% miR1:1, 1% miR1:0,
+    2% miR-1:-1, 0.5% miR-1:-2, 2% miR-2:-2, 0.5% miR-2:-3, 1% star0:-1,
+    0.5% star0:-2, 1% star1:1, 0.5% star1:0, 2% star-1:-1.
+
+    Sampling of simulated MIRNA-derived reads continues until the required
+    number of reads for a particular locus is recovered.
+
+  tasiRNA/phased siRNA simulation
+    TAS loci have no overlap with repeat-masked areas of the genome. Each
+    locus has a nominal size of 140nts. All bases must be ATGC
+    (non-ambiguous).
+
+    Each locus is simulated to be diced in 6 21 nt phases. At each phasing
+    position, 21mers are the dominant size, with 20mers and 22mers being
+    less frequent .. the 20 and 22nt variants vary in their 3' positions
+    relative to the 'master' 21nt RNAs.
+
+    Once a locus has been identified, and all possible 20, 21, and 22mers
+    charted, each read is simulated according to the following
+    probabilities:
+
+    Strand of origin is 50% top, 50% bottom.
+
+    Phase position is equal chance for all (e.g. 1/6 chance for any
+    particular phase location).
+
+    80% of the time, the 21mer is returned, 10% of the time the 20mer, and
+    10% the 22 mer.
+
+  Heterochromatic siRNA simulation
+    Heterochromatic siRNA loci can come from anywhere in the genome
+    (repeat-masked or un-masked), and their nominal locus size is 100nts.
+    All nts in the 100 nt locus must be ATGC (no ambiguous positions).
+
+    All possible start and stop positions for 24, 23, 22, and 21 nt RNAs are
+    eligible from these loci. Each simulated read is identified with the
+    following probabilities:
+
+    50% chance for top of bottom strand origin
+
+    5' position within the locus is random
+
+    90% chance of a 24 mer, 5% chance of a 23 mer, 3% chance of a 22 mer,
+    and 2% chance of a 21 mer.
+
+  Simulation of sequencing errors
+    Regardless of small RNA type, once a given read has been simulated,
+    there is a chance of introucing a single-nucleotide substitution
+    relative to the reference genome at a randomly selected position in the
+    read. The chance of introducing this error is given by option -e
+    (Default is 1 in 10,000).
+
+  No overlapping loci
+    None of the simulated loci are allowed to have any overlap with each
+    other.
+
+OUTPUT
+  Files
+    Two files are created in the working directory.
+
+    simulated_sRNA-seq_reads_overview.txt : A tab-delimited text file giving
+    the coordinates and names for each simulated locus.
+
+    simulated_sRNA-seq_reads.fasta : A FASTA file of all of the simulated
+    reads.
+
+  Naming conventions
+    The FASTA header of each simulated read encode the basic information
+    about the read. Several different fields are separated by "_"
+    characters. For instance the following read header
+    ">MIRNA_2_2_chr7:123063894-123063914_+_0" means ..
+
+    MIRNA: This came from a simulated MIRNA locus
+
+    2: The 2nd simulated locus of this type
+
+    2: Read number 2 from this locus
+
+    chr7:123063894-123063914: The true origin of this read.
+
+    +: The genomic strand of this read.
+
+    0: The number of sequencing errors simulated into the read.
+
