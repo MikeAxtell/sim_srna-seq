@@ -2,7 +2,7 @@
 use strict;
 use Getopt::Std;
 
-my $ver_num = 0.1;
+my $ver_num = 0.2;
 
 my $usage = "sim_sRNA-seq.pl version: $ver_num
 
@@ -310,6 +310,7 @@ sub get_het_perfects {
     my $read_stop;
     my $read_loc;
     my $read_seq;
+    my $read_seq_rc;
     my $key;
     my $value;
     my %hash = ();
@@ -323,11 +324,21 @@ sub get_het_perfects {
 	$key = "top_" . "$i" . "_" . "24";
 	$value = "$read_loc\t$read_seq";
 	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	#print "read_seq is $read_seq for_seq is $for_seq read_loc is $read_loc\n";
+	
 	# now bot
-	$read_seq = revcomp(substr($for_seq,$i,24));
+	$read_seq_rc = revcomp($read_seq);
 	$key = "bot_" . "$i" . "_" . "24";
-	$value = "$read_loc\t$read_seq";
+	$value = "$read_loc\t$read_seq_rc";
 	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	#print "read_seq is $read_seq for_seq is $for_seq read_loc is $read_loc\n";
+	
 	
 	# top strand, 23
 	$read_seq = substr($for_seq,$i,23);
@@ -335,12 +346,23 @@ sub get_het_perfects {
 	$read_stop = $start + $i + 23 - 1;
 	$read_loc = "$chr" . ":" . "$read_start" . "-" . "$read_stop";
 	$key = "top_" . "$i" . "_" . "23";
-	$hash{$key} = $value;
-	# now bot
-	$read_seq = revcomp(substr($for_seq,$i,23));
-	$key = "bot_" . "$i" . "_" . "23";
 	$value = "$read_loc\t$read_seq";
 	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	#print "read_seq is $read_seq for_seq is $for_seq read_loc is $read_loc\n";
+	
+	# now bot
+	$read_seq_rc = revcomp($read_seq);
+	$key = "bot_" . "$i" . "_" . "23";
+	$value = "$read_loc\t$read_seq_rc";
+	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	#print "read_seq is $read_seq for_seq is $for_seq read_loc is $read_loc\n";
+	
 	
 	# top strand, 22
 	$read_seq = substr($for_seq,$i,22);
@@ -348,12 +370,23 @@ sub get_het_perfects {
 	$read_stop = $start + $i + 22 - 1;
 	$read_loc = "$chr" . ":" . "$read_start" . "-" . "$read_stop";
 	$key = "top_" . "$i" . "_" . "22";
-	$hash{$key} = $value;
-	# now bot
-	$read_seq = revcomp(substr($for_seq,$i,22));
-	$key = "bot_" . "$i" . "_" . "22";
 	$value = "$read_loc\t$read_seq";
 	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	#print "read_seq is $read_seq for_seq is $for_seq read_loc is $read_loc\n";
+	
+	# now bot
+	$read_seq_rc = revcomp($read_seq);
+	$key = "bot_" . "$i" . "_" . "22";
+	$value = "$read_loc\t$read_seq_rc";
+	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	#print "read_seq is $read_seq for_seq is $for_seq read_loc is $read_loc\n";
+	
 
 	# top strand, 21
 	$read_seq = substr($for_seq,$i,21);
@@ -361,13 +394,35 @@ sub get_het_perfects {
 	$read_stop = $start + $i + 21 - 1;
 	$read_loc = "$chr" . ":" . "$read_start" . "-" . "$read_stop";
 	$key = "top_" . "$i" . "_" . "21";
-	$hash{$key} = $value;
-	# now bot
-	$read_seq = revcomp(substr($for_seq,$i,21));
-	$key = "bot_" . "$i" . "_" . "21";
 	$value = "$read_loc\t$read_seq";
 	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	#print "read_seq is $read_seq for_seq is $for_seq read_loc is $read_loc\n";
+	
+	# now bot
+	$read_seq_rc = revcomp($read_seq);
+	$key = "bot_" . "$i" . "_" . "21";
+	$value = "$read_loc\t$read_seq_rc";
+	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	#print "read_seq is $read_seq for_seq is $for_seq read_loc is $read_loc\n";
+	
+	# test 
+	#exit;
+	
     }
+    
+    # test
+    #print STDERR "hash het_perfects is:\n";
+    #my @sx = sort (keys %hash);
+    #foreach my $x (@sx) {
+	#print "\t$x\t$hash{$x}\n";
+    #}
+    #exit;
     return %hash;
 }
 	
@@ -431,6 +486,10 @@ sub get_tasi_perfects {
 	$key = "top_$phase" . "_21";
 	$value = "$top_loc\t$top_seq";
 	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	
 	# 20 mer
 	$top_seq = substr($locus_for_seq,$offset,20);
 	$top_start = $start + $offset;
@@ -439,6 +498,10 @@ sub get_tasi_perfects {
 	$key = "top_$phase" . "_20";
 	$value = "$top_loc\t$top_seq";
 	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	
 	# 22 mer
 	$top_seq = substr($locus_for_seq,$offset,22);
 	$top_start = $start + $offset;
@@ -447,6 +510,10 @@ sub get_tasi_perfects {
 	$key = "top_$phase" . "_22";
 	$value = "$top_loc\t$top_seq";
 	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	
 	
 	# bottom strand now
 	$offset = 2 + (21 * $phase);
@@ -458,6 +525,10 @@ sub get_tasi_perfects {
 	$key = "bot_$phase" . "_21";
 	$value = "$bot_loc\t$bot_seq";
 	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	
 	# 20 mer
 	my $offsetx = $offset + 1;
 	$bot_seq = revcomp(substr($locus_for_seq,$offsetx,20));
@@ -467,6 +538,10 @@ sub get_tasi_perfects {
 	$key = "bot_$phase" . "_20";
 	$value = "$bot_loc\t$bot_seq";
 	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+	
 	# 22 mer
 	$offsetx = $offset - 1;
 	$bot_seq = revcomp(substr($locus_for_seq,$offsetx,22));
@@ -476,6 +551,12 @@ sub get_tasi_perfects {
 	$key = "bot_$phase" . "_22";
 	$value = "$bot_loc\t$bot_seq";
 	$hash{$key} = $value;
+	
+	# test
+	#print "\n$key\t$value\n";
+
+	# test
+	#exit;
     }
     
     # test
